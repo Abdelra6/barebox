@@ -774,8 +774,8 @@ static int fit_find_compatible_unit(struct fit_handle *handle,
 		if (!score && !of_property_present(child, "compatible") &&
 		    of_property_present(child, "fdt")) {
 			struct device_node *image;
-			const char *unit = "fdt";
-			int data_len;
+			const char *compats, *unit = "fdt";
+			int data_len, compatlen;
 			const void *data;
 			int ret;
 
@@ -795,7 +795,9 @@ static int fit_find_compatible_unit(struct fit_handle *handle,
 				goto next;
 			}
 
-			score = fdt_machine_is_compatible(data, data_len, machine);
+			compats = fdt_machine_get_compatible(data, data_len, &compatlen);
+			if (compats)
+				score = fdt_string_is_compatible(compats, compatlen, machine);
 
 next:
 			if (ret)
