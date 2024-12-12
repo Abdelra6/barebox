@@ -796,8 +796,10 @@ static int fit_find_compatible_unit(struct fit_handle *handle,
 			}
 
 			compats = fdt_machine_get_compatible(data, data_len, &compatlen);
-			if (compats)
+			if (compats) {
 				score = fdt_string_is_compatible(compats, compatlen, machine);
+				of_new_property_const(child, "compatible", compats, compatlen);
+			}
 
 next:
 			if (ret)
