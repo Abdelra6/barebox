@@ -1,0 +1,52 @@
+name: CodeChecker Analysis
+
+on:
+  push:
+    branches:
+      - master
+jobs:
+  codechecker_analysis:
+    runs-on: ubuntu-latest
+    env:
+      C_INCLUDE_PATH: /usr/include
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v2
+      - name: Install build essentials
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld libusb-1.0-0-dev imagemagick libftdi1-dev libsdl2-dev
+          sudo apt-get install -y cppcheck
+          wget -O infer-linux64-v1.1.0.tar.xz https://github.com/facebook/infer/releases/download/v1.1.0/infer-linux64-v1.1.0.tar.xz
+          tar -xvf infer-linux64-v1.1.0.tar.xz
+          sudo mv infer-linux64-v1.1.0 /opt/infer
+          echo "/opt/infer/bin" >> $GITHUB_PATH
+#          sudo apt-get update
+#          sudo apt-get install -y \
+#          clang \
+#          lld \
+#          libusb-1.0-0-dev \
+#          imagemagick \
+#          libftdi1-dev \
+#          libsdl2-dev
+      - name: Log build
+        run: |
+          mkdir -p logs
+          codechecker log -b "make -j$(nproc)" -o logs/compile_commands.json
+
+      - name: Analyze
+        run: |
+          codechecker analyze logs/compile_commands.json -o analysis-out
+          codechecker parse analysis-out -e html -o html-reports
+
+      - name: upload html reports
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: codechecker html reports
+          path: html-reports
+
