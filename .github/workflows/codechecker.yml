@@ -1,0 +1,109 @@
+# .github/workflows/codechecker-analysis.yml
+
+name: CodeChecker Analysis
+
+on:
+  push:
+    branches:
+      - master 
+  pull_request:
+
+env:
+  CC_SERVER: http://localhost:8555/barebox
+  MASTER_RUN_NAME: tmux_master
+  SOURCE_DIR: ${{ github.workspace }}
+  OUTPUT_DIR: ${{ github.workspace }}/analysis
+  HTML_DIR: ${{ github.workspace }}/html
+  BUILD_COMMAND: make
+  ANALYZER_OPTIONS: ""
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt install libusb-1.0-0-dev
+          sudo apt update
+          sudo apt install -y \
+          make \
+          gcc \
+          binutils \
+          bison \
+          flex \
+          libssl-dev \
+          libncurses-dev \
+          bc \
+          python3
+          sudo apt update
+          sudo apt-get install -y imagemagick
+          sudo apt install -y build-essential clang curl python3-pip
+          sudo apt-get install -y libsdl2-dev
+          sudo apt-get update
+          sudo apt-get install -y clang lld libusb-1.0-0-dev imagemagick libftdi1-dev libsdl2-dev
+          sudo apt-get install -y cppcheck
+          pip3 install codechecker
+
+      - name: Generate compile_commands.json with CodeChecker
+        run: |
+          mkdir -p "${OUTPUT_DIR}"
+          cd "${SOURCE_DIR}"
+          make allyesconfig
+          CodeChecker log --build "${BUILD_COMMAND}" \
+                          --output "${OUTPUT_DIR}/compile_commands.json"
+
+      - name: Run CodeChecker analysis
+        run: |
+          set -e pipefail
+          CodeChecker analyze "${OUTPUT_DIR}/compile_commands.json" \
+                              --output "${OUTPUT_DIR}/reports" ${ANALYZER_OPTIONS} \
+                              2>&1 | tee "${GITHUB_WORKSPACE}/codechecker_analyze.log"
+
+      - name: Check for previous master run
+        id: check_run
+        run: |
+          set +e
+          MASTER_EXISTS=$(CodeChecker cmd runs --url "${CC_SERVER}" --output csv | grep "${MASTER_RUN_NAME}")
+          echo "exists=$([[ -n \"$MASTER_EXISTS\" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+
+      - name: Run CodeChecker diff
+        if: steps.check_run.outputs.exists == 'true'
+        run: |
+          mkdir -p "${WORKSPACE:-$GITHUB_WORKSPACE}"
+          > "${WORKSPACE:-$GITHUB_WORKSPACE}/bugs.txt"
+          DIFF_CMD="CodeChecker cmd diff --url ${CC_SERVER} \
+            --basename ${MASTER_RUN_NAME} \
+            --newname $(readlink -f ${OUTPUT_DIR}) \
+            --new"
+          WAS_OUTPUT=1
+
+          eval "${DIFF_CMD}" | while read -r line; do
+            if [[ "$line" =~ "- No results" ]]; then
+              WAS_OUTPUT=0
+            fi
+            echo "${line}"
+            echo "${line}" >> "${WORKSPACE:-$GITHUB_WORKSPACE}/bugs.txt"
+          done
+
+          if [ -n "${HTML_DIR}" ]; then
+            ${DIFF_CMD} --output html --clean --export-dir ${HTML_DIR}
+            echo "Bug visualisation HTML files generated at \"${HTML_DIR}\"."
+          fi
+
+          if [ $WAS_OUTPUT -eq 1 ]; then
+            echo "New bugs found! Failing workflow."
+            exit 1
+          else
+            echo "No new bugs found!"
+            exit 0
+          fi
+
+      - name: Warn if master run missing
+        if: steps.check_run.outputs.exists != 'true'
+        run: |
+          echo "Master run \"${MASTER_RUN_NAME}\" does not exist. Cannot diff."
+
