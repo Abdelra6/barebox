@@ -1,0 +1,78 @@
+# .github/workflows/codechecker-analysis.yml
+
+name: CodeChecker analysis
+
+on:
+  push:
+    branches:
+      - master 
+  pull_request:
+
+env:
+  CC_SERVER: http://localhost:8555/barebox
+  MASTER_RUN_NAME: barebox_master
+  SOURCE_DIR: ${{ github.workspace }}
+  OUTPUT_DIR: ${{ github.workspace }}
+  HTML_DIR: ${{ github.workspace }}/html
+  BUILD_COMMAND: make
+  ANALYZER_OPTIONS: ""
+  LLVM: 1
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt install llvm clang
+          sudo apt install libusb-1.0-0-dev
+          sudo apt update
+          sudo apt install -y \
+          make \
+          gcc \
+          binutils \
+          bison \
+          flex \
+          libssl-dev \
+          libncurses-dev \
+          bc \
+          python3
+          sudo apt update
+          sudo apt-get install -y imagemagick
+          sudo apt install -y build-essential clang curl python3-pip
+          sudo apt-get install -y libsdl2-dev
+          sudo apt-get update
+          sudo apt-get install -y clang lld libusb-1.0-0-dev imagemagick libftdi1-dev libsdl2-dev
+          sudo apt-get install -y cppcheck
+          pip3 install codechecker
+
+      - name: Generate compile_commands.json with CodeChecker
+        run: |
+          mkdir -p "${OUTPUT_DIR}"
+          cd "${SOURCE_DIR}"
+          make allyesconfig
+          CodeChecker log --build "make" --output ./compile_commands.json
+
+      - name: run clang-tidy
+        run: |
+          run-clang-tidy -p "${SOURCE_DIR}"
+      - name: Run CodeChecker analysis
+        run: |
+          CodeChecker analyze ./compile_commands.json --enable sensitive --output ./reports
+
+      - name: parse
+        run: |
+          CodeChecker parse --export html --output ./reports_html ./reports
+
+      - name: Upload CodeChecker HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: codechecker-report
+          path: ./reports_html
+
+
+

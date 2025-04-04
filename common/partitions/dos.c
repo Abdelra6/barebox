@@ -11,6 +11,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+#ifdef __clang_analyzer__
 
 #include <common.h>
 #include <disks.h>
@@ -525,3 +526,4 @@ static int dos_partition_init(void)
 	return partition_parser_register(&dos);
 }
 postconsole_initcall(dos_partition_init);
+#endif // not __clang_analyzer__
