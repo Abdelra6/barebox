@@ -312,13 +312,19 @@ static unsigned long get_pte_attrs(unsigned flags)
 {
 	switch (flags) {
 	case MAP_CACHED:
-		return CACHED_MEM;
+		return attrs_xn() | CACHED_MEM;
 	case MAP_UNCACHED:
 		return attrs_xn() | UNCACHED_MEM;
 	case MAP_FAULT:
 		return 0x0;
 	case ARCH_MAP_WRITECOMBINE:
 		return attrs_xn() | MEM_ALLOC_WRITECOMBINE;
+	case MAP_CODE:
+		return CACHED_MEM | PTE_BLOCK_RO;
+	case ARCH_MAP_CACHED_RO:
+		return attrs_xn() | CACHED_MEM | PTE_BLOCK_RO;
+	case ARCH_MAP_CACHED_RWX:
+		return CACHED_MEM;
 	default:
 		return ~0UL;
 	}
@@ -376,6 +382,10 @@ void __mmu_init(bool mmu_on)
 {
 	uint64_t *ttb = get_ttb();
 	struct memory_bank *bank;
+	unsigned long text_start = (unsigned long)&_stext;
+	unsigned long text_size = (unsigned long)&__start_rodata - (unsigned long)&_stext;
+	unsigned long rodata_start = (unsigned long)&__start_rodata;
+	unsigned long rodata_size = (unsigned long)&__end_rodata - rodata_start;
 
 	if (!request_barebox_region("ttb", (unsigned long)ttb,
 				  ARM_EARLY_PAGETABLE_SIZE))
@@ -400,7 +410,20 @@ void __mmu_init(bool mmu_on)
 			pos = rsv->end + 1;
 		}
 
-		remap_range((void *)pos, bank->start + bank->size - pos, MAP_CACHED);
+		if (IS_ENABLED(CONFIG_ARM_MMU_PERMISSIONS)) {
+			if (region_overlap_size(pos, bank->start + bank->size - pos,
+			    text_start, text_size)) {
+				remap_range((void *)pos, text_start - pos, MAP_CACHED);
+				remap_range((void *)text_start, text_size, MAP_CODE);
+				remap_range((void *)rodata_start, rodata_size, ARCH_MAP_CACHED_RO);
+				remap_range((void *)(rodata_start + rodata_size),
+					    bank->start + bank->size - (rodata_start + rodata_size), MAP_CACHED);
+			} else {
+				remap_range((void *)pos, bank->start + bank->size - pos, MAP_CACHED);
+			}
+		} else {
+			remap_range((void *)pos, bank->start + bank->size - pos, ARCH_MAP_CACHED_RWX);
+		}
 	}
 
 	/* Make zero page faulting to catch NULL pointer derefs */
@@ -482,7 +505,7 @@ void mmu_early_enable(unsigned long membase, unsigned long memsize, unsigned lon
 	 */
 	init_range(2);
 
-	early_remap_range(membase, memsize, MAP_CACHED);
+	early_remap_range(membase, memsize, ARCH_MAP_CACHED_RWX);
 
 	if (optee_get_membase(&optee_membase)) {
                 optee_membase = membase + memsize - OPTEE_SIZE;
@@ -501,7 +524,7 @@ void mmu_early_enable(unsigned long membase, unsigned long memsize, unsigned lon
 	early_remap_range(optee_membase, OPTEE_SIZE, MAP_FAULT);
 
 	early_remap_range(PAGE_ALIGN_DOWN((uintptr_t)_stext), PAGE_ALIGN(_etext - _stext),
-			  MAP_CACHED);
+			  ARCH_MAP_CACHED_RWX);
 
 	mmu_enable();
 }
