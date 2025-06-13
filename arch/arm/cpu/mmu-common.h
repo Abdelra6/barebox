@@ -10,6 +10,8 @@
 #include <linux/sizes.h>
 
 #define ARCH_MAP_WRITECOMBINE	((unsigned)-1)
+#define ARCH_MAP_CACHED_RWX	((unsigned)-2)
+#define ARCH_MAP_CACHED_RO	((unsigned)-3)
 
 struct device;
 
