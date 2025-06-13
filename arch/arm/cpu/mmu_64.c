@@ -10,6 +10,7 @@
 #include <init.h>
 #include <mmu.h>
 #include <errno.h>
+#include <range.h>
 #include <zero_page.h>
 #include <linux/sizes.h>
 #include <asm/memory.h>
@@ -155,6 +156,56 @@ static void create_sections(uint64_t virt, uint64_t phys, uint64_t size,
 			    IS_ALIGNED(phys, block_size)) {
 				type = (level == 3) ?
 					PTE_TYPE_PAGE : PTE_TYPE_BLOCK;
+				*pte = phys | attr | type;
+				addr += block_size;
+				phys += block_size;
+				size -= block_size;
+				break;
+			} else {
+				split_block(pte, level);
+			}
+
+			table = get_level_table(pte);
+		}
+
+	}
+
+	tlb_invalidate();
+}
+
+/*
+ * like create_sections(), but this one creates pages instead of sections
+ */
+static void create_pages(uint64_t phys, uint64_t size, uint64_t attr)
+{
+	uint64_t virt = phys;
+	uint64_t *ttb = get_ttb();
+	uint64_t block_size;
+	uint64_t block_shift;
+	uint64_t *pte;
+	uint64_t idx;
+	uint64_t addr;
+	uint64_t *table;
+	uint64_t type;
+	int level;
+
+	addr = virt;
+
+	attr &= ~PTE_TYPE_MASK;
+
+	size = PAGE_ALIGN(size);
+
+	while (size) {
+		table = ttb;
+		for (level = 0; level < 4; level++) {
+			block_shift = level2shift(level);
+			idx = (addr & level2mask(level)) >> block_shift;
+			block_size = (1ULL << block_shift);
+
+			pte = table + idx;
+
+			if (level == 3) {
+				type = PTE_TYPE_PAGE;
 				*pte = phys | attr | type;
 				addr += block_size;
 				phys += block_size;
@@ -410,6 +461,7 @@ void mmu_early_enable(unsigned long membase, unsigned long memsize, unsigned lon
 {
 	int el;
 	u64 optee_membase;
+	unsigned long barebox_size;
 	unsigned long ttb = arm_mem_ttb(membase + memsize);
 
 	if (get_cr() & CR_M)
@@ -432,12 +484,24 @@ void mmu_early_enable(unsigned long membase, unsigned long memsize, unsigned lon
 
 	early_remap_range(membase, memsize, MAP_CACHED);
 
-	if (optee_get_membase(&optee_membase))
+	if (optee_get_membase(&optee_membase)) {
                 optee_membase = membase + memsize - OPTEE_SIZE;
+
+		barebox_size = optee_membase - barebox_start;
+
+		create_pages(optee_membase - barebox_size, barebox_size,
+			     get_pte_attrs(ARCH_MAP_CACHED_RWX));
+	} else {
+		barebox_size = membase + memsize - barebox_start;
+
+		create_pages(membase + memsize - barebox_size, barebox_size,
+			     get_pte_attrs(ARCH_MAP_CACHED_RWX));
+	}
 
 	early_remap_range(optee_membase, OPTEE_SIZE, MAP_FAULT);
 
-	early_remap_range(PAGE_ALIGN_DOWN((uintptr_t)_stext), PAGE_ALIGN(_etext - _stext), MAP_CACHED);
+	early_remap_range(PAGE_ALIGN_DOWN((uintptr_t)_stext), PAGE_ALIGN(_etext - _stext),
+			  MAP_CACHED);
 
 	mmu_enable();
 }
