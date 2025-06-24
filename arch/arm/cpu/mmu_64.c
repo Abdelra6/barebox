@@ -543,3 +543,97 @@ void mmu_early_disable(void)
 	dsb();
 	isb();
 }
+
+static uint64_t check_attrs(uint64_t perm_attrs)
+{
+		return (perm_attrs & (PTE_BLOCK_PXN | PTE_BLOCK_UXN | PTE_BLOCK_RO));
+}
+
+static void print_pte_attrs(uint64_t pte)
+{
+	uint64_t perm_attrs = pte & PTE_ATTRMASK;
+
+	if(!check_attrs(perm_attrs))
+	{
+		printf("[    FAULT    ]");
+		return;
+	}
+
+	printf("[%-3s|%-3s|%-2s|%-2s]",
+		perm_attrs & PTE_BLOCK_PXN ? "PXN" : "",
+		perm_attrs & PTE_BLOCK_UXN ? "UXN" : "",
+		perm_attrs & PTE_BLOCK_RO ? "RO"  : "",
+		pte_is_cacheable(pte) ? "C" : "UC");
+}
+
+#define ALL_ATTRS (3 << 8 | PTE_ATTRMASK)
+
+typedef struct {
+	uint64_t current_va_start;
+	uint64_t current_va_end;
+	uint64_t current_attrs;
+	bool range_started;
+} print_state_t;
+
+typedef void (*print_table_cb)(print_state_t *state);
+
+static void print_table(uint64_t *table, int level, uint64_t va_base, print_state_t *state, print_table_cb cb)
+{
+	uint64_t block_size = granule_size(level);
+	for (int i = 0; i < MAX_PTE_ENTRIES; i++) {
+		uint64_t pte = table[i];
+		uint64_t _addr = va_base + (i * block_size);
+		uint64_t va_end;
+		uint64_t attrs = pte & ALL_ATTRS;
+		if (level < 3 && pte_type(&pte) == PTE_TYPE_BLOCK) {
+			va_end = _addr + block_size - 1;
+		}
+		else if (level == 3 && pte_type(&pte) == PTE_TYPE_PAGE) {
+			va_end = _addr + block_size - 1;  // 4KB page
+		}
+		else if (level < 3 && pte_type(&pte) == PTE_TYPE_TABLE) {
+			uint64_t *next_table = (uint64_t *)(pte & GENMASK_ULL(47, PAGE_SHIFT));
+			print_table(next_table, level + 1, _addr, state, cb);
+			continue;
+		}
+		else
+			break;
+
+		if (state->range_started) {
+			if (_addr == state->current_va_end + 1 && attrs == state->current_attrs)
+				state->current_va_end = va_end;
+			else {
+				cb(state);
+				state->current_va_start = _addr;
+				state->current_va_end = va_end;
+				state->current_attrs = attrs;
+			}
+		}
+		else {
+			state->current_va_start = _addr;
+			state->current_va_end = va_end;
+			state->current_attrs = attrs;
+			state->range_started = true;
+		}
+	}
+}
+
+static void print_state(print_state_t *state)
+{
+
+	printf("0x%016llx - 0x%016llx ", state->current_va_start, state->current_va_end);
+	print_pte_attrs(state->current_attrs);
+	printf("\n");
+}
+
+int mmuinfo_print_page_tables(void)
+{
+	print_state_t state = {0};
+	state.range_started = false;
+	uint64_t *ttb = get_ttb();
+	print_table(ttb, 0, 0, &state, print_state);
+	if (state.range_started) {
+		print_state(&state);
+	}
+	return 0;
+}

@@ -67,4 +67,5 @@ void __dma_inv_range(unsigned long, unsigned long);
 void mmu_early_enable(unsigned long membase, unsigned long memsize, unsigned long barebox_base);
 void mmu_early_disable(void);
 
+int mmuinfo_print_page_tables(void);
 #endif /* __ASM_MMU_H */

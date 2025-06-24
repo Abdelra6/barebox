@@ -9,6 +9,8 @@
 #include <asm/system.h>
 #include <asm/sysreg.h>
 #include <linux/bitfield.h>
+#include <asm/pgtable64.h>
+#include <asm/mmu.h>
 
 #define at_par(reg, addr) ({ \
 		asm volatile("at " reg ", %0\n" :: "r" (addr)); \

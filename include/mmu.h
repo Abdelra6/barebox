@@ -46,9 +46,9 @@ static inline int remap_range(void *start, size_t size, unsigned flags)
 }
 
 #ifdef CONFIG_MMUINFO
-int mmuinfo(void *addr);
+int mmuinfo(int flag, void *addr);
 #else
-static inline int mmuinfo(void *addr)
+static inline int mmuinfo(int flag, void *addr)
 {
 	return -ENOSYS;
 }

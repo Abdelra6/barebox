@@ -43,6 +43,7 @@
 #define PTE_TYPE_TABLE          (3 << 0)
 #define PTE_TYPE_PAGE           (3 << 0)
 #define PTE_TYPE_BLOCK          (1 << 0)
+#define PTE_TYPE_VALID          (1 << 0)
 
 #define PTE_TABLE_PXN           (1UL << 59)
 #define PTE_TABLE_XN            (1UL << 60)
@@ -66,6 +67,11 @@
  */
 #define PTE_ATTRINDX(t)		((t) << 2)
 #define PTE_ATTRINDX_MASK	(7 << 2)
+#define PTE_ATTRMASK		(PTE_BLOCK_PXN		| \
+				 PTE_BLOCK_UXN		| \
+				 PTE_ATTRINDX_MASK	| \
+				 PTE_BLOCK_RO		| \
+				 PTE_TYPE_VALID)
 
 /*
  * Memory types available.
